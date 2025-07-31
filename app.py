@@ -7,19 +7,9 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 # --- App Initialization ---
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
 
 # Configure for proxy (HAProxy/nginx with HTTPS)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-
-# Session configuration (environment-aware)
-# Only use secure cookies when behind HTTPS proxy
-use_secure_cookies = os.environ.get('USE_HTTPS', 'false').lower() == 'true'
-app.config.update(
-    SESSION_COOKIE_SECURE=use_secure_cookies,  # Only send cookies over HTTPS when in production
-    SESSION_COOKIE_HTTPONLY=True,  # Prevent XSS
-    SESSION_COOKIE_SAMESITE='Lax',  # CSRF protection
-)
 
 # --- Configuration Management ---
 CONFIG_FILE = 'config.json'
@@ -28,19 +18,30 @@ def load_config():
     """Loads configuration from a JSON file."""
     if not os.path.exists(CONFIG_FILE):
         # Create a default config if it doesn't exist
+        import secrets
         default_config = {
             "ADMIN_USERNAME": "admin",
             "ADMIN_PASSWORD": "admin",
             "GITHUB_USERNAME": "",
             "GITHUB_REPO": "",
             "GITHUB_BRANCH": "main",
-            "GITHUB_TOKEN": ""
+            "GITHUB_TOKEN": "",
+            "SECRET_KEY": secrets.token_hex(32)
         }
         with open(CONFIG_FILE, 'w') as f:
             json.dump(default_config, f, indent=4)
         return default_config
+    
     with open(CONFIG_FILE, 'r') as f:
-        return json.load(f)
+        config = json.load(f)
+    
+    # Add SECRET_KEY if it doesn't exist (for existing configs)
+    if 'SECRET_KEY' not in config:
+        import secrets
+        config['SECRET_KEY'] = secrets.token_hex(32)
+        save_config(config)
+    
+    return config
 
 def save_config(config):
     """Saves configuration to a JSON file."""
@@ -553,6 +554,19 @@ def manage_file():
         return jsonify(response.json()), status_code
     else:
         return jsonify({'error': 'GitHub API request failed', 'details': response.json()}), response.status_code
+
+# Initialize Flask app with persistent config
+config = load_config()
+app.secret_key = config['SECRET_KEY']
+
+# Session configuration (environment-aware)
+# Only use secure cookies when behind HTTPS proxy
+use_secure_cookies = os.environ.get('USE_HTTPS', 'false').lower() == 'true'
+app.config.update(
+    SESSION_COOKIE_SECURE=use_secure_cookies,  # Only send cookies over HTTPS when in production
+    SESSION_COOKIE_HTTPONLY=True,  # Prevent XSS
+    SESSION_COOKIE_SAMESITE='Lax',  # CSRF protection
+)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5003)
