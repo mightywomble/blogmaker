@@ -3,10 +3,23 @@ import requests
 import base64
 import json
 from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for, flash
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # --- App Initialization ---
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
+
+# Configure for proxy (HAProxy/nginx with HTTPS)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+# Session configuration (environment-aware)
+# Only use secure cookies when behind HTTPS proxy
+use_secure_cookies = os.environ.get('USE_HTTPS', 'false').lower() == 'true'
+app.config.update(
+    SESSION_COOKIE_SECURE=use_secure_cookies,  # Only send cookies over HTTPS when in production
+    SESSION_COOKIE_HTTPONLY=True,  # Prevent XSS
+    SESSION_COOKIE_SAMESITE='Lax',  # CSRF protection
+)
 
 # --- Configuration Management ---
 CONFIG_FILE = 'config.json'
