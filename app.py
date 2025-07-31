@@ -529,31 +529,71 @@ def get_file(filepath):
 def manage_file():
     if 'is_admin' not in session: return jsonify({'error': 'Not authenticated'}), 401
     
-    data = request.json
-    path = data['path']
-    sha = data.get('sha')
-    details = get_repo_details()
-    headers = get_github_headers()
-    api_url = f"https://api.github.com/repos/{details['user']}/{details['repo']}/contents/{path}"
-    
-    if request.method == 'POST': # Create or Update
-        content = data['content']
-        content_b64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-        payload = {'message': f'docs: update {path}', 'content': content_b64, 'branch': details['branch']}
-        if sha: payload['sha'] = sha
-        response = requests.put(api_url, headers=headers, json=payload)
-        status_code = response.status_code
+    try:
+        data = request.json
+        path = data['path']
+        sha = data.get('sha')
+        details = get_repo_details()
+        headers = get_github_headers()
         
-    elif request.method == 'DELETE': # Delete
-        if not sha: return jsonify({'error': 'File SHA is required for deletion'}), 400
-        payload = {'message': f'docs: delete {path}', 'sha': sha, 'branch': details['branch']}
-        response = requests.delete(api_url, headers=headers, json=payload)
-        status_code = 200 if response.status_code == 200 else response.status_code
-
-    if status_code in [200, 201]:
-        return jsonify(response.json()), status_code
-    else:
-        return jsonify({'error': 'GitHub API request failed', 'details': response.json()}), response.status_code
+        # Validate required fields
+        if not details['user'] or not details['repo']:
+            return jsonify({'error': 'GitHub username or repository not configured'}), 400
+        
+        if not headers:
+            return jsonify({'error': 'GitHub token not configured'}), 400
+            
+        api_url = f"https://api.github.com/repos/{details['user']}/{details['repo']}/contents/{path}"
+        
+        print(f"DEBUG: API URL: {api_url}")
+        print(f"DEBUG: Method: {request.method}")
+        print(f"DEBUG: Path: {path}")
+        print(f"DEBUG: SHA: {sha}")
+        
+        if request.method == 'POST': # Create or Update
+            content = data['content']
+            content_b64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+            payload = {
+                'message': f'docs: update {path}', 
+                'content': content_b64, 
+                'branch': details['branch']
+            }
+            if sha: 
+                payload['sha'] = sha
+            
+            print(f"DEBUG: Payload keys: {list(payload.keys())}")
+            print(f"DEBUG: Branch: {details['branch']}")
+            
+            response = requests.put(api_url, headers=headers, json=payload)
+            status_code = response.status_code
+            
+        elif request.method == 'DELETE': # Delete
+            if not sha: return jsonify({'error': 'File SHA is required for deletion'}), 400
+            payload = {
+                'message': f'docs: delete {path}', 
+                'sha': sha, 
+                'branch': details['branch']
+            }
+            response = requests.delete(api_url, headers=headers, json=payload)
+            status_code = response.status_code
+        
+        print(f"DEBUG: Response status: {status_code}")
+        
+        if status_code in [200, 201]:
+            return jsonify(response.json()), status_code
+        else:
+            error_details = response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
+            print(f"DEBUG: Error response: {error_details}")
+            return jsonify({
+                'error': 'GitHub API request failed', 
+                'details': error_details,
+                'status_code': status_code,
+                'url': api_url
+            }), status_code
+            
+    except Exception as e:
+        print(f"DEBUG: Exception in manage_file: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 # Initialize Flask app with persistent config
 config = load_config()
