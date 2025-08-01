@@ -233,24 +233,31 @@ EDITOR_TEMPLATE = """
         </aside>
 
         <main class="w-2/3 p-6 flex flex-col">
-            <div class="flex justify-between items-center mb-4">
+            <!-- File Title -->
+            <div class="mb-3">
                 <h1 id="current-file-name" class="text-2xl font-bold text-gray-800">No File Selected</h1>
-                <div class="flex items-center space-x-3">
-                    <!-- AI Rewrite Controls -->
-                    <div id="ai-controls" class="flex items-center space-x-2 hidden">
-                        <select id="ai-provider" class="border rounded px-2 py-1 text-sm">
-                            <option value="">Select AI</option>
-                        </select>
-                        <div class="flex items-center space-x-1">
-                            <span class="text-sm text-gray-600">I want this post to be</span>
-                            <input type="text" id="ai-style-input" placeholder="professional, engaging, etc." class="border rounded px-2 py-1 text-sm w-48">
-                        </div>
-                        <button id="ai-rewrite-btn" class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-1 px-3 rounded text-sm disabled:bg-gray-400" disabled>
-                            <i class="fas fa-magic mr-1"></i>Rewrite
-                        </button>
+            </div>
+            
+            <!-- Controls Row -->
+            <div class="flex items-center justify-between mb-4">
+                <!-- AI Rewrite Controls -->
+                <div id="ai-controls" class="flex items-center space-x-3 hidden">
+                    <select id="ai-provider" class="border rounded-lg px-3 py-2 text-sm bg-white shadow-sm">
+                        <option value="">Select AI</option>
+                    </select>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm text-gray-600 whitespace-nowrap">I want this post to be</span>
+                        <input type="text" id="ai-style-input" placeholder="professional, engaging, etc." class="border rounded-lg px-3 py-2 text-sm w-64 shadow-sm">
                     </div>
-                    <button id="save-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded disabled:bg-gray-400" disabled>Save Changes</button>
+                    <button id="ai-rewrite-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-6 rounded-full text-sm disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200 whitespace-nowrap" disabled>
+                        <i class="fas fa-magic mr-2"></i>AI Rewrite
+                    </button>
                 </div>
+                
+                <!-- Save Button -->
+                <button id="save-btn" class="bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-6 rounded-full disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors duration-200" disabled>
+                    <i class="fas fa-save mr-2"></i>Save Changes
+                </button>
             </div>
             <div class="editor-container flex-grow">
                 <textarea id="editor"></textarea>
