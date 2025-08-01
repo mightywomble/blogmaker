@@ -825,13 +825,16 @@ def ai_rewrite():
 
 def get_openai_rewrite(content, style_prompt, api_key):
     """Rewrites content using OpenAI API."""
-    from openai import OpenAI
-    
-    client = OpenAI(api_key=api_key)
-    
-    system_prompt = f"You are an expert content editor. Rewrite the following markdown content to be more {style_prompt}. Maintain the original structure and formatting, but improve the content quality. Return only the rewritten markdown content without any additional commentary."
+    import gc
     
     try:
+        # Lazy import to reduce memory footprint
+        from openai import OpenAI
+        
+        client = OpenAI(api_key=api_key)
+        
+        system_prompt = f"You are an expert content editor. Rewrite the following markdown content to be more {style_prompt}. Maintain the original structure and formatting, but improve the content quality. Return only the rewritten markdown content without any additional commentary."
+        
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -841,23 +844,61 @@ def get_openai_rewrite(content, style_prompt, api_key):
             max_tokens=2000,
             temperature=0.7
         )
-        return response.choices[0].message.content.strip()
+        
+        result = response.choices[0].message.content.strip()
+        
+        # Clean up to free memory
+        del client, response
+        gc.collect()
+        
+        return result
+        
     except Exception as e:
+        # Force garbage collection on error
+        gc.collect()
         raise Exception(f"OpenAI API error: {str(e)}")
 
 def get_gemini_rewrite(content, style_prompt, api_key):
-    """Rewrites content using Gemini API."""
-    import google.generativeai as genai
-    
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-pro')
-    
-    prompt = f"You are an expert content editor. Rewrite the following markdown content to be more {style_prompt}. Maintain the original structure and formatting, but improve the content quality. Return only the rewritten markdown content without any additional commentary.\n\nContent to rewrite:\n{content}"
+    """Rewrites content using Gemini API with memory optimization."""
+    import gc
+    import os
     
     try:
+        # Set environment variable to reduce gRPC memory usage
+        os.environ['GRPC_POLL_STRATEGY'] = 'poll'
+        os.environ['GRPC_ENABLE_FORK_SUPPORT'] = '0'
+        
+        # Lazy import to reduce memory footprint
+        import google.generativeai as genai
+        
+        # Configure with minimal settings
+        genai.configure(api_key=api_key)
+        
+        # Use REST transport instead of gRPC to reduce memory usage
+        generation_config = {
+            'temperature': 0.7,
+            'max_output_tokens': 2000,
+        }
+        
+        model = genai.GenerativeModel(
+            'gemini-2.5-pro',
+            generation_config=generation_config
+        )
+        
+        prompt = f"You are an expert content editor. Rewrite the following markdown content to be more {style_prompt}. Maintain the original structure and formatting, but improve the content quality. Return only the rewritten markdown content without any additional commentary.\n\nContent to rewrite:\n{content}"
+        
         response = model.generate_content(prompt)
-        return response.text.strip()
+        result = response.text.strip()
+        
+        # Clean up to free memory
+        del model, response
+        gc.collect()
+        
+        return result
+        
     except Exception as e:
+        # Force garbage collection on error
+        gc.collect()
         raise Exception(f"Gemini API error: {str(e)}")
 
 # Initialize Flask app with persistent config

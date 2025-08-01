@@ -1,0 +1,47 @@
+[Unit]
+Description=Blog Creator Application
+After=network.target
+
+[Service]
+Type=notify
+User=david
+Group=david
+WorkingDirectory=/home/david/myapps/blogmaker
+Environment="PATH=/home/david/myapps/blogmaker/venv/bin"
+Environment="PYTHONOPTIMIZE=1"
+Environment="PYTHONDONTWRITEBYTECODE=1"
+Environment="PYTHONUNBUFFERED=1"
+Environment="GRPC_POLL_STRATEGY=poll"
+Environment="GRPC_ENABLE_FORK_SUPPORT=0"
+Environment="GRPC_VERBOSITY=ERROR"
+Environment="PYTHONGC=1"
+
+# Use the optimized gunicorn configuration
+ExecStart=/home/david/myapps/blogmaker/venv/bin/gunicorn --config gunicorn.conf.py app:app
+
+# Memory and process limits
+LimitNOFILE=1024
+LimitNPROC=512
+MemoryMax=512M
+MemoryHigh=400M
+
+# Restart policy
+Restart=always
+RestartSec=3
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/home/david/myapps/blogmaker
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=blogcreator
+
+[Install]
+WantedBy=multi-user.target
