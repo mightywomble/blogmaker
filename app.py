@@ -28,8 +28,7 @@ def load_config():
             "GITHUB_TOKEN": "",
             "SECRET_KEY": secrets.token_hex(32),
             "OPENAI_API_KEY": "",
-            "GEMINI_API_KEY": "",
-            "AI_STYLE_WORDS": ["professional", "honest", "focused", "enterprise", "humour", "enhance content", "engaging", "clear", "concise", "technical", "creative", "formal", "casual"]
+            "GEMINI_API_KEY": ""
         }
         with open(CONFIG_FILE, 'w') as f:
             json.dump(default_config, f, indent=4)
@@ -173,11 +172,6 @@ SETTINGS_TEMPLATE = """
                     <input type="password" name="gemini_api_key" placeholder="Enter new Gemini API key or leave blank to keep existing" class="shadow border rounded w-full py-2 px-3 text-gray-700">
                     <p class="text-gray-500 text-xs mt-1">For Gemini integration</p>
                 </div>
-                <div class="mb-6">
-                    <label for="ai_style_words" class="block text-gray-700 text-sm font-bold mb-2">AI Style Words</label>
-                    <input type="text" name="ai_style_words" value="{{ config.AI_STYLE_WORDS | join(', ') }}" class="shadow border rounded w-full py-2 px-3 text-gray-700">
-                    <p class="text-gray-500 text-xs mt-1">Comma-separated words for AI rewriting styles (e.g., professional, engaging, technical)</p>
-                </div>
                 
                 <hr class="my-6">
                 
@@ -247,9 +241,10 @@ EDITOR_TEMPLATE = """
                         <select id="ai-provider" class="border rounded px-2 py-1 text-sm">
                             <option value="">Select AI</option>
                         </select>
-                        <select id="ai-style" class="border rounded px-2 py-1 text-sm">
-                            <option value="">Select Style</option>
-                        </select>
+                        <div class="flex items-center space-x-1">
+                            <span class="text-sm text-gray-600">I want this post to be</span>
+                            <input type="text" id="ai-style-input" placeholder="professional, engaging, etc." class="border rounded px-2 py-1 text-sm w-48">
+                        </div>
                         <button id="ai-rewrite-btn" class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-1 px-3 rounded text-sm disabled:bg-gray-400" disabled>
                             <i class="fas fa-magic mr-1"></i>Rewrite
                         </button>
@@ -480,7 +475,6 @@ EDITOR_TEMPLATE = """
             function updateAIControls() {
                 const aiControlsEl = document.getElementById('ai-controls');
                 const providerSelect = document.getElementById('ai-provider');
-                const styleSelect = document.getElementById('ai-style');
                 const rewriteBtn = document.getElementById('ai-rewrite-btn');
 
                 // Show/hide AI controls based on availability
@@ -500,26 +494,17 @@ EDITOR_TEMPLATE = """
                     providerSelect.appendChild(option);
                 });
 
-                // Populate style dropdown
-                styleSelect.innerHTML = '<option value="">Select Style</option>';
-                aiConfig.styles.forEach(style => {
-                    const option = document.createElement('option');
-                    option.value = style;
-                    option.textContent = style.charAt(0).toUpperCase() + style.slice(1);
-                    styleSelect.appendChild(option);
-                });
-
                 // Update rewrite button state
                 updateRewriteButtonState();
             }
 
             function updateRewriteButtonState() {
                 const providerSelect = document.getElementById('ai-provider');
-                const styleSelect = document.getElementById('ai-style');
+                const styleInput = document.getElementById('ai-style-input');
                 const rewriteBtn = document.getElementById('ai-rewrite-btn');
 
                 const hasProvider = providerSelect.value !== '';
-                const hasStyle = styleSelect.value !== '';
+                const hasStyle = styleInput.value.trim() !== '';
                 const hasContent = currentFile && easyMDE.value().trim() !== '';
 
                 rewriteBtn.disabled = !(hasProvider && hasStyle && hasContent);
@@ -527,26 +512,41 @@ EDITOR_TEMPLATE = """
 
             async function performAIRewrite() {
                 const providerSelect = document.getElementById('ai-provider');
-                const styleSelect = document.getElementById('ai-style');
+                const styleInput = document.getElementById('ai-style-input');
                 
                 const provider = providerSelect.value;
-                const style = styleSelect.value;
+                const style = styleInput.value.trim();
                 const content = easyMDE.value();
 
                 if (!provider || !style || !content.trim()) {
-                    alert('Please select an AI provider, style, and ensure there is content to rewrite.');
+                    alert('Please select an AI provider, enter a style, and ensure there is content to rewrite.');
                     return;
                 }
 
-                showProgress(`Rewriting with ${aiConfig.providers.find(p => p.id === provider)?.name}...`);
-
+                const providerName = aiConfig.providers.find(p => p.id === provider)?.name;
+                
                 try {
+                    // Step 1: Preparing request
+                    showProgress(`Preparing content for ${providerName}...`);
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                    // Step 2: Sending to AI
+                    showProgress(`Sending content to ${providerName} for rewriting...`);
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
+                    // Step 3: AI processing
+                    showProgress(`${providerName} is analyzing and rewriting your content...`);
+                    
                     const result = await apiCall('/api/ai-rewrite', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ content, provider, style })
                     });
 
+                    // Step 4: Applying changes
+                    showProgress('Applying rewritten content to editor...');
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
                     // Replace editor content with rewritten version
                     easyMDE.value(result.rewritten_content);
                     
@@ -555,6 +555,11 @@ EDITOR_TEMPLATE = """
                         fileStatuses[currentFile.path].hasUnsavedChanges = true;
                         updateUI();
                     }
+                    
+                    // Step 5: Complete
+                    showProgress('Rewrite completed successfully!');
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    
                 } catch (error) {
                     alert(`AI rewrite failed: ${error.message}`);
                 } finally {
@@ -564,7 +569,7 @@ EDITOR_TEMPLATE = """
 
             // Event listeners for AI controls
             document.getElementById('ai-provider').addEventListener('change', updateRewriteButtonState);
-            document.getElementById('ai-style').addEventListener('change', updateRewriteButtonState);
+            document.getElementById('ai-style-input').addEventListener('input', updateRewriteButtonState);
             document.getElementById('ai-rewrite-btn').addEventListener('click', performAIRewrite);
 
             // Update the existing updateUI function to include AI controls
@@ -632,11 +637,6 @@ def settings():
             config['OPENAI_API_KEY'] = request.form['openai_api_key']
         if request.form.get('gemini_api_key'):
             config['GEMINI_API_KEY'] = request.form['gemini_api_key']
-        
-        # Handle AI style words (comma-separated string)
-        ai_style_words = request.form.get('ai_style_words', '')
-        if ai_style_words:
-            config['AI_STYLE_WORDS'] = [word.strip() for word in ai_style_words.split(',') if word.strip()]
         
         config['ADMIN_USERNAME'] = request.form['admin_username']
         if request.form.get('admin_password'):
