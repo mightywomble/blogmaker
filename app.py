@@ -850,7 +850,7 @@ def get_gemini_rewrite(content, style_prompt, api_key):
     import google.generativeai as genai
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-2.5-pro')
     
     prompt = f"You are an expert content editor. Rewrite the following markdown content to be more {style_prompt}. Maintain the original structure and formatting, but improve the content quality. Return only the rewritten markdown content without any additional commentary.\n\nContent to rewrite:\n{content}"
     
