@@ -13,6 +13,7 @@ Blog Creator is a Flask-based web application that allows you to create, edit, a
 
 ### 📝 Content Management
 - **Markdown Editor**: Built-in EasyMDE editor with live preview
+- **AI-Powered Rewriting**: Enhance content with ChatGPT and Gemini AI
 - **File Management**: Create, edit, and delete markdown files
 - **GitHub Integration**: Direct integration with GitHub repositories
 - **Auto-save Status**: Visual indicators for saved/unsaved changes
@@ -29,11 +30,19 @@ Blog Creator is a Flask-based web application that allows you to create, edit, a
 - **Token Authentication**: Secure GitHub API access
 - **Settings Management**: Easy configuration through web interface
 
+### 🤖 AI-Powered Features
+- **Content Enhancement**: Rewrite content with ChatGPT or Gemini AI
+- **Multiple AI Providers**: Support for OpenAI and Google Gemini
+- **Customizable Styles**: Configure rewriting styles (professional, engaging, technical, etc.)
+- **Smart Integration**: AI controls appear automatically when configured
+- **Preserve Structure**: Maintains markdown formatting while improving content
+
 ### 🎨 User Interface
 - **Modern Design**: Clean, responsive interface built with Tailwind CSS
 - **Real-time Updates**: Live file status indicators
 - **Modal Dialogs**: Intuitive file creation and management
 - **Progress Indicators**: Visual feedback for operations
+- **AI Controls**: Integrated AI rewriting interface in the editor
 
 ## 🔄 How it Works with SimpleBlog
 
@@ -82,6 +91,8 @@ This application creates a complete blogging workflow:
 3. **Install dependencies:**
    ```bash
    pip install flask requests
+   # Optional: For AI features
+   pip install openai google-generativeai
    ```
 
 4. **Run the application:**
@@ -116,6 +127,17 @@ This application creates a complete blogging workflow:
    - Go to GitHub Settings → Developer settings → Personal access tokens
    - Create a token with `repo` permissions
    - Add the token to your Blog Creator settings
+
+5. **AI Configuration (Optional):**
+   - **OpenAI Setup**:
+     - Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+     - Add the key in Settings → AI Configuration
+   - **Gemini Setup**:
+     - Get an API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+     - Add the key in Settings → AI Configuration
+   - **Customize AI Styles**:
+     - Edit the comma-separated list of rewriting styles
+     - Examples: professional, engaging, technical, creative, formal, casual
 
 ### Production Environment
 
@@ -199,22 +221,32 @@ The `config.json` file contains all application settings:
     "GITHUB_USERNAME": "your-github-username",
     "GITHUB_REPO": "your-blog-repo",
     "GITHUB_BRANCH": "main",
-    "GITHUB_TOKEN": "your-github-token"
+    "GITHUB_TOKEN": "your-github-token",
+    "OPENAI_API_KEY": "your-openai-api-key",
+    "GEMINI_API_KEY": "your-gemini-api-key",
+    "AI_STYLE_WORDS": ["professional", "engaging", "technical", "creative", "formal", "casual"]
 }
 ```
 
 ## 🔧 API Endpoints
 
+### Core Endpoints
 - `GET /` - Main dashboard (redirects to editor)
 - `GET /login` - Admin login page
 - `POST /login` - Process login
 - `GET /settings` - Configuration page
 - `POST /settings` - Save configuration
 - `GET /editor` - Main editor interface
+
+### File Management API
 - `GET /api/files` - List repository files
 - `GET /api/file/<path>` - Get file content
 - `POST /api/file` - Create/update file
 - `DELETE /api/file` - Delete file
+
+### AI Integration API
+- `GET /api/ai-styles` - Get available AI providers and styles
+- `POST /api/ai-rewrite` - Rewrite content with AI
 
 ## 🐛 Troubleshooting
 
@@ -235,6 +267,12 @@ The `config.json` file contains all application settings:
 4. **Login Issues**
    - Clear browser cache and cookies
    - Reset `config.json` if corrupted
+
+5. **AI Features Not Working**
+   - Verify API keys are correctly configured in Settings
+   - Check that AI dependencies are installed: `pip install openai google-generativeai`
+   - Ensure you have sufficient API credits/quota
+   - Check console for detailed error messages
 
 ### Debug Mode
 
