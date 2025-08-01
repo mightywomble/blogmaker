@@ -26,7 +26,10 @@ def load_config():
             "GITHUB_REPO": "",
             "GITHUB_BRANCH": "main",
             "GITHUB_TOKEN": "",
-            "SECRET_KEY": secrets.token_hex(32)
+            "SECRET_KEY": secrets.token_hex(32),
+            "OPENAI_API_KEY": "",
+            "GEMINI_API_KEY": "",
+            "AI_STYLE_WORDS": ["professional", "honest", "focused", "enterprise", "humour", "enhance content", "engaging", "clear", "concise", "technical", "creative", "formal", "casual"]
         }
         with open(CONFIG_FILE, 'w') as f:
             json.dump(default_config, f, indent=4)
@@ -159,6 +162,25 @@ SETTINGS_TEMPLATE = """
                 
                 <hr class="my-6">
                 
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">AI Configuration</h2>
+                <div class="mb-4">
+                    <label for="openai_api_key" class="block text-gray-700 text-sm font-bold mb-2">OpenAI API Key</label>
+                    <input type="password" name="openai_api_key" placeholder="Enter new OpenAI API key or leave blank to keep existing" class="shadow border rounded w-full py-2 px-3 text-gray-700">
+                    <p class="text-gray-500 text-xs mt-1">For ChatGPT integration</p>
+                </div>
+                <div class="mb-4">
+                    <label for="gemini_api_key" class="block text-gray-700 text-sm font-bold mb-2">Gemini API Key</label>
+                    <input type="password" name="gemini_api_key" placeholder="Enter new Gemini API key or leave blank to keep existing" class="shadow border rounded w-full py-2 px-3 text-gray-700">
+                    <p class="text-gray-500 text-xs mt-1">For Gemini integration</p>
+                </div>
+                <div class="mb-6">
+                    <label for="ai_style_words" class="block text-gray-700 text-sm font-bold mb-2">AI Style Words</label>
+                    <input type="text" name="ai_style_words" value="{{ config.AI_STYLE_WORDS | join(', ') }}" class="shadow border rounded w-full py-2 px-3 text-gray-700">
+                    <p class="text-gray-500 text-xs mt-1">Comma-separated words for AI rewriting styles (e.g., professional, engaging, technical)</p>
+                </div>
+                
+                <hr class="my-6">
+                
                 <h2 class="text-xl font-semibold mb-4 text-gray-700">Admin Credentials</h2>
                  <div class="mb-4">
                     <label for="admin_username" class="block text-gray-700 text-sm font-bold mb-2">Admin Username</label>
@@ -219,7 +241,21 @@ EDITOR_TEMPLATE = """
         <main class="w-2/3 p-6 flex flex-col">
             <div class="flex justify-between items-center mb-4">
                 <h1 id="current-file-name" class="text-2xl font-bold text-gray-800">No File Selected</h1>
-                <button id="save-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded disabled:bg-gray-400" disabled>Save Changes</button>
+                <div class="flex items-center space-x-3">
+                    <!-- AI Rewrite Controls -->
+                    <div id="ai-controls" class="flex items-center space-x-2 hidden">
+                        <select id="ai-provider" class="border rounded px-2 py-1 text-sm">
+                            <option value="">Select AI</option>
+                        </select>
+                        <select id="ai-style" class="border rounded px-2 py-1 text-sm">
+                            <option value="">Select Style</option>
+                        </select>
+                        <button id="ai-rewrite-btn" class="bg-purple-500 hover:bg-purple-600 text-white font-bold py-1 px-3 rounded text-sm disabled:bg-gray-400" disabled>
+                            <i class="fas fa-magic mr-1"></i>Rewrite
+                        </button>
+                    </div>
+                    <button id="save-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded disabled:bg-gray-400" disabled>Save Changes</button>
+                </div>
             </div>
             <div class="editor-container flex-grow">
                 <textarea id="editor"></textarea>
@@ -253,6 +289,7 @@ EDITOR_TEMPLATE = """
             
             let currentFile = null;
             let fileStatuses = {};
+            let aiConfig = { providers: [], styles: [] };
             
             const easyMDE = new EasyMDE({
                 element: document.getElementById('editor'),
@@ -429,6 +466,116 @@ EDITOR_TEMPLATE = """
                 input.value = '';
             });
 
+            // AI Rewrite functionality
+            async function loadAIConfig() {
+                try {
+                    const config = await apiCall('/api/ai-styles');
+                    aiConfig = config;
+                    updateAIControls();
+                } catch (error) {
+                    console.log('AI config not available:', error.message);
+                }
+            }
+
+            function updateAIControls() {
+                const aiControlsEl = document.getElementById('ai-controls');
+                const providerSelect = document.getElementById('ai-provider');
+                const styleSelect = document.getElementById('ai-style');
+                const rewriteBtn = document.getElementById('ai-rewrite-btn');
+
+                // Show/hide AI controls based on availability
+                if (aiConfig.providers.length > 0 && currentFile) {
+                    aiControlsEl.classList.remove('hidden');
+                } else {
+                    aiControlsEl.classList.add('hidden');
+                    return;
+                }
+
+                // Populate provider dropdown
+                providerSelect.innerHTML = '<option value="">Select AI</option>';
+                aiConfig.providers.forEach(provider => {
+                    const option = document.createElement('option');
+                    option.value = provider.id;
+                    option.textContent = provider.name;
+                    providerSelect.appendChild(option);
+                });
+
+                // Populate style dropdown
+                styleSelect.innerHTML = '<option value="">Select Style</option>';
+                aiConfig.styles.forEach(style => {
+                    const option = document.createElement('option');
+                    option.value = style;
+                    option.textContent = style.charAt(0).toUpperCase() + style.slice(1);
+                    styleSelect.appendChild(option);
+                });
+
+                // Update rewrite button state
+                updateRewriteButtonState();
+            }
+
+            function updateRewriteButtonState() {
+                const providerSelect = document.getElementById('ai-provider');
+                const styleSelect = document.getElementById('ai-style');
+                const rewriteBtn = document.getElementById('ai-rewrite-btn');
+
+                const hasProvider = providerSelect.value !== '';
+                const hasStyle = styleSelect.value !== '';
+                const hasContent = currentFile && easyMDE.value().trim() !== '';
+
+                rewriteBtn.disabled = !(hasProvider && hasStyle && hasContent);
+            }
+
+            async function performAIRewrite() {
+                const providerSelect = document.getElementById('ai-provider');
+                const styleSelect = document.getElementById('ai-style');
+                
+                const provider = providerSelect.value;
+                const style = styleSelect.value;
+                const content = easyMDE.value();
+
+                if (!provider || !style || !content.trim()) {
+                    alert('Please select an AI provider, style, and ensure there is content to rewrite.');
+                    return;
+                }
+
+                showProgress(`Rewriting with ${aiConfig.providers.find(p => p.id === provider)?.name}...`);
+
+                try {
+                    const result = await apiCall('/api/ai-rewrite', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content, provider, style })
+                    });
+
+                    // Replace editor content with rewritten version
+                    easyMDE.value(result.rewritten_content);
+                    
+                    // Mark as having unsaved changes
+                    if (currentFile) {
+                        fileStatuses[currentFile.path].hasUnsavedChanges = true;
+                        updateUI();
+                    }
+                } catch (error) {
+                    alert(`AI rewrite failed: ${error.message}`);
+                } finally {
+                    hideProgress();
+                }
+            }
+
+            // Event listeners for AI controls
+            document.getElementById('ai-provider').addEventListener('change', updateRewriteButtonState);
+            document.getElementById('ai-style').addEventListener('change', updateRewriteButtonState);
+            document.getElementById('ai-rewrite-btn').addEventListener('click', performAIRewrite);
+
+            // Update the existing updateUI function to include AI controls
+            const originalUpdateUI = updateUI;
+            updateUI = function() {
+                originalUpdateUI();
+                updateAIControls();
+            };
+
+            // Initialize everything
+            loadAIConfig();
             fetchFiles();
         });
     </script>
@@ -479,6 +626,17 @@ def settings():
         config['GITHUB_BRANCH'] = request.form['github_branch']
         if request.form.get('github_token'):
             config['GITHUB_TOKEN'] = request.form['github_token']
+        
+        # AI Configuration
+        if request.form.get('openai_api_key'):
+            config['OPENAI_API_KEY'] = request.form['openai_api_key']
+        if request.form.get('gemini_api_key'):
+            config['GEMINI_API_KEY'] = request.form['gemini_api_key']
+        
+        # Handle AI style words (comma-separated string)
+        ai_style_words = request.form.get('ai_style_words', '')
+        if ai_style_words:
+            config['AI_STYLE_WORDS'] = [word.strip() for word in ai_style_words.split(',') if word.strip()]
         
         config['ADMIN_USERNAME'] = request.form['admin_username']
         if request.form.get('admin_password'):
@@ -594,6 +752,106 @@ def manage_file():
     except Exception as e:
         print(f"DEBUG: Exception in manage_file: {str(e)}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+@app.route('/api/ai-styles')
+def get_ai_styles():
+    """Returns available AI style words and configured providers."""
+    if 'is_admin' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    config = load_config()
+    
+    # Check which AI providers are configured
+    providers = []
+    if config.get('OPENAI_API_KEY'):
+        providers.append({'id': 'openai', 'name': 'ChatGPT'})
+    if config.get('GEMINI_API_KEY'):
+        providers.append({'id': 'gemini', 'name': 'Gemini'})
+        
+    return jsonify({
+        'providers': providers,
+        'styles': config.get('AI_STYLE_WORDS', [])
+    })
+
+@app.route('/api/ai-rewrite', methods=['POST'])
+def ai_rewrite():
+    """Rewrites content using the specified AI provider and style."""
+    if 'is_admin' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        data = request.json
+        content = data.get('content', '').strip()
+        provider = data.get('provider')
+        style = data.get('style', '').strip()
+        
+        if not content:
+            return jsonify({'error': 'Content is required'}), 400
+        if not provider:
+            return jsonify({'error': 'AI provider is required'}), 400
+        if not style:
+            return jsonify({'error': 'Style is required'}), 400
+            
+        config = load_config()
+        
+        # Get the rewritten content based on provider
+        if provider == 'openai':
+            api_key = config.get('OPENAI_API_KEY')
+            if not api_key:
+                return jsonify({'error': 'OpenAI API key not configured'}), 400
+            rewritten_content = get_openai_rewrite(content, style, api_key)
+        elif provider == 'gemini':
+            api_key = config.get('GEMINI_API_KEY')
+            if not api_key:
+                return jsonify({'error': 'Gemini API key not configured'}), 400
+            rewritten_content = get_gemini_rewrite(content, style, api_key)
+        else:
+            return jsonify({'error': 'Unknown AI provider'}), 400
+            
+        return jsonify({'rewritten_content': rewritten_content})
+        
+    except Exception as e:
+        print(f"DEBUG: Exception in ai_rewrite: {str(e)}")
+        return jsonify({'error': f'AI rewrite failed: {str(e)}'}), 500
+
+# --- AI Rewrite Functions ---
+
+def get_openai_rewrite(content, style_prompt, api_key):
+    """Rewrites content using OpenAI API."""
+    import openai
+    
+    openai.api_key = api_key
+    
+    system_prompt = f"You are an expert content editor. Rewrite the following markdown content to be more {style_prompt}. Maintain the original structure and formatting, but improve the content quality. Return only the rewritten markdown content without any additional commentary."
+    
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": content}
+            ],
+            max_tokens=2000,
+            temperature=0.7
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        raise Exception(f"OpenAI API error: {str(e)}")
+
+def get_gemini_rewrite(content, style_prompt, api_key):
+    """Rewrites content using Gemini API."""
+    import google.generativeai as genai
+    
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-pro')
+    
+    prompt = f"You are an expert content editor. Rewrite the following markdown content to be more {style_prompt}. Maintain the original structure and formatting, but improve the content quality. Return only the rewritten markdown content without any additional commentary.\n\nContent to rewrite:\n{content}"
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        raise Exception(f"Gemini API error: {str(e)}")
 
 # Initialize Flask app with persistent config
 config = load_config()
