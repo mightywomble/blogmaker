@@ -825,15 +825,15 @@ def ai_rewrite():
 
 def get_openai_rewrite(content, style_prompt, api_key):
     """Rewrites content using OpenAI API."""
-    import openai
+    from openai import OpenAI
     
-    openai.api_key = api_key
+    client = OpenAI(api_key=api_key)
     
     system_prompt = f"You are an expert content editor. Rewrite the following markdown content to be more {style_prompt}. Maintain the original structure and formatting, but improve the content quality. Return only the rewritten markdown content without any additional commentary."
     
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": content}
