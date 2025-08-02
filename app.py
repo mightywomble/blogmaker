@@ -59,7 +59,190 @@ def get_github_headers():
         return None
     return {
         'Authorization': f'token {token}',
-        'Accept': 'application/vnd.github.v3+json'
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'BlogCreator/1.0'  # Good practice for GitHub API
+    }
+
+def check_github_api_status():
+    """Check GitHub API status and rate limits."""
+    headers = get_github_headers()
+    if not headers:
+        return {'status': 'error', 'message': 'No GitHub token configured'}
+    
+    try:
+        # Use a simple API call to check status and rate limits
+        response = requests.get('https://api.github.com/rate_limit', headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            rate_limit_data = response.json()
+            core_limits = rate_limit_data.get('resources', {}).get('core', {})
+            remaining = core_limits.get('remaining', 0)
+            limit = core_limits.get('limit', 0)
+            reset_time = core_limits.get('reset', 0)
+            
+            return {
+                'status': 'ok',
+                'rate_limit': {
+                    'remaining': remaining,
+                    'limit': limit,
+                    'reset_time': reset_time,
+                    'percentage_used': ((limit - remaining) / limit * 100) if limit > 0 else 0
+                }
+            }
+        else:
+            return {
+                'status': 'error', 
+                'message': f'GitHub API returned status {response.status_code}',
+                'response': response.text[:200]
+            }
+            
+    except requests.exceptions.Timeout:
+        return {'status': 'error', 'message': 'GitHub API request timed out'}
+    except requests.exceptions.ConnectionError:
+        return {'status': 'error', 'message': 'Unable to connect to GitHub API'}
+    except Exception as e:
+        return {'status': 'error', 'message': f'GitHub API check failed: {str(e)}'}
+
+def test_github_repo_access():
+    """Test if we can access the configured repository."""
+    details = get_repo_details()
+    headers = get_github_headers()
+    
+    if not details['user'] or not details['repo']:
+        return {'status': 'error', 'message': 'Repository details not configured'}
+    
+    if not headers:
+        return {'status': 'error', 'message': 'GitHub token not configured'}
+    
+    try:
+        # Test repository access
+        repo_url = f"https://api.github.com/repos/{details['user']}/{details['repo']}"
+        response = requests.get(repo_url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            repo_data = response.json()
+            permissions = repo_data.get('permissions', {})
+            
+            return {
+                'status': 'ok',
+                'repo_name': repo_data.get('full_name'),
+                'permissions': {
+                    'read': permissions.get('pull', False),
+                    'write': permissions.get('push', False),
+                    'admin': permissions.get('admin', False)
+                },
+                'default_branch': repo_data.get('default_branch', 'main')
+            }
+        elif response.status_code == 404:
+            return {'status': 'error', 'message': 'Repository not found or no access'}
+        elif response.status_code == 403:
+            return {'status': 'error', 'message': 'Access forbidden - check token permissions'}
+        else:
+            return {
+                'status': 'error', 
+                'message': f'Repository access failed with status {response.status_code}',
+                'response': response.text[:200]
+            }
+            
+    except Exception as e:
+        return {'status': 'error', 'message': f'Repository access test failed: {str(e)}'}
+
+def github_api_request_with_retry(method, url, headers=None, json_data=None, max_retries=3, backoff_factor=2):
+    """Make GitHub API request with retry logic and rate limit handling."""
+    import time
+    
+    for attempt in range(max_retries):
+        try:
+            if method.upper() == 'GET':
+                response = requests.get(url, headers=headers, timeout=30)
+            elif method.upper() == 'PUT':
+                response = requests.put(url, headers=headers, json=json_data, timeout=30)
+            elif method.upper() == 'DELETE':
+                response = requests.delete(url, headers=headers, json=json_data, timeout=30)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            
+            # Check for rate limiting
+            if response.status_code == 403:
+                rate_limit_remaining = response.headers.get('X-RateLimit-Remaining', '0')
+                if rate_limit_remaining == '0':
+                    reset_time = int(response.headers.get('X-RateLimit-Reset', '0'))
+                    current_time = int(time.time())
+                    wait_time = max(reset_time - current_time, 60)  # Wait at least 1 minute
+                    
+                    if attempt < max_retries - 1:
+                        print(f"Rate limit exceeded. Waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        return {
+                            'success': False,
+                            'error': 'rate_limit_exceeded',
+                            'message': f'GitHub API rate limit exceeded. Resets in {wait_time} seconds.',
+                            'retry_after': wait_time
+                        }
+            
+            # Check for other temporary errors that might benefit from retry
+            if response.status_code in [500, 502, 503, 504] and attempt < max_retries - 1:
+                wait_time = backoff_factor ** attempt
+                print(f"Server error {response.status_code}. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            
+            # Return successful response or final error
+            if response.status_code in [200, 201]:
+                return {
+                    'success': True,
+                    'data': response.json(),
+                    'status_code': response.status_code
+                }
+            else:
+                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {'message': response.text}
+                return {
+                    'success': False,
+                    'error': 'api_error',
+                    'message': error_data.get('message', f'GitHub API error: {response.status_code}'),
+                    'status_code': response.status_code,
+                    'details': error_data
+                }
+                
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                wait_time = backoff_factor ** attempt
+                print(f"Request timeout. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            else:
+                return {
+                    'success': False,
+                    'error': 'timeout',
+                    'message': 'Request timed out after multiple attempts'
+                }
+                
+        except requests.exceptions.ConnectionError:
+            if attempt < max_retries - 1:
+                wait_time = backoff_factor ** attempt
+                print(f"Connection error. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            else:
+                return {
+                    'success': False,
+                    'error': 'connection_error',
+                    'message': 'Unable to connect to GitHub API after multiple attempts'
+                }
+                
+        except Exception as e:
+            return {
+                'success': False,
+                'error': 'unexpected_error',
+                'message': f'Unexpected error: {str(e)}'
+            }
+    
+    return {
+        'success': False,
+        'error': 'max_retries_exceeded',
+        'message': f'Failed after {max_retries} attempts'
     }
 
 def get_repo_details():
@@ -341,33 +524,107 @@ EDITOR_TEMPLATE = """
                 }
             }
 
-            async function saveFile(path, content, sha, isNewFile) {
-                showProgress(isNewFile ? 'Creating file...' : 'Saving changes...');
+            // Pre-save checks
+            async function performPreSaveChecks() {
+                showProgress('Checking GitHub status...');
+                
                 try {
-                    await new Promise(res => setTimeout(res, 500));
-                    showProgress('Pushing to repository...');
+                    // Check GitHub API status
+                    const githubStatus = await apiCall('/api/github/status');
+                    if (githubStatus.status !== 'ok') {
+                        throw new Error(`GitHub API issue: ${githubStatus.message}`);
+                    }
+                    
+                    // Check rate limits
+                    const rateLimit = githubStatus.rate_limit;
+                    if (rateLimit.remaining < 5) {
+                        throw new Error(`GitHub rate limit nearly exceeded (${rateLimit.remaining} requests remaining). Please wait before saving.`);
+                    }
+                    
+                    // Check repository access
+                    showProgress('Verifying repository access...');
+                    const repoAccess = await apiCall('/api/github/repo-access');
+                    if (repoAccess.status !== 'ok') {
+                        throw new Error(`Repository access issue: ${repoAccess.message}`);
+                    }
+                    
+                    // Check write permissions
+                    if (!repoAccess.permissions.write) {
+                        throw new Error('No write permissions to repository. Check your GitHub token.');
+                    }
+                    
+                    return { success: true, rateLimit };
+                    
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+            
+            async function saveFile(path, content, sha, isNewFile) {
+                showProgress(isNewFile ? 'Creating file...' : 'Preparing to save...');
+                
+                try {
+                    // Perform pre-save checks
+                    const preCheck = await performPreSaveChecks();
+                    if (!preCheck.success) {
+                        throw new Error(preCheck.error);
+                    }
+                    
+                    // Display rate limit info if getting close
+                    const remaining = preCheck.rateLimit.remaining;
+                    if (remaining < 50) {
+                        console.warn(`GitHub rate limit warning: ${remaining} requests remaining`);
+                    }
+                    
+                    showProgress(isNewFile ? 'Creating file...' : 'Saving changes to GitHub...');
+                    
                     const updatedFile = await apiCall('/api/file', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ path, content, sha })
                     });
                     
-                    showProgress('Refreshing file list...');
+                    showProgress('File saved successfully! Refreshing list...');
                     await fetchFiles();
                     
                     if (isNewFile) {
                         const newFileInList = Array.from(fileListEl.children).find(el => el.dataset.path === path);
                         if (newFileInList) newFileInList.click();
                     } else {
-                        fileStatuses[path].sha = updatedFile.sha;
+                        fileStatuses[path].sha = updatedFile.sha || updatedFile.content?.sha;
                         fileStatuses[path].hasUnsavedChanges = false;
                         fileStatuses[path].lastSaved = new Date();
                         updateUI();
                     }
+                    
+                    // Brief success message
+                    showProgress('✓ File saved successfully!');
+                    await new Promise(res => setTimeout(res, 1000));
+                    
                 } catch (error) {
-                    alert(`Error saving file: ${error.message}`);
+                    console.error('Save error:', error);
+                    
+                    // Enhanced error handling with user-friendly messages
+                    let errorMessage = error.message;
+                    let suggestion = '';
+                    
+                    if (error.message.includes('rate limit')) {
+                        suggestion = '\n\nTip: Try again in a few minutes, or copy your content as backup.';
+                    } else if (error.message.includes('GitHub API')) {
+                        suggestion = '\n\nTip: Check your internet connection and GitHub settings.';
+                    } else if (error.message.includes('permissions')) {
+                        suggestion = '\n\nTip: Update your GitHub Personal Access Token with repository write permissions.';
+                    } else if (error.message.includes('timeout')) {
+                        suggestion = '\n\nTip: GitHub might be slow. Try copying your content and refreshing the page.';
+                    } else if (error.message.includes('conflict')) {
+                        suggestion = '\n\nTip: The file may have been modified elsewhere. Refresh the page and try again.';
+                    } else {
+                        suggestion = '\n\nTip: Copy your content as backup, refresh the page, and try again.';
+                    }
+                    
+                    alert(`❌ Save Failed\n\n${errorMessage}${suggestion}`);
+                    
                 } finally {
-                    await new Promise(res => setTimeout(res, 500));
                     hideProgress();
                 }
             }
@@ -690,9 +947,28 @@ def get_file(filepath):
     content = base64.b64decode(response.json().get('content', '')).decode('utf-8')
     return jsonify({'content': content})
 
+@app.route('/api/github/status')
+def github_status():
+    """Check GitHub API status and rate limits."""
+    if 'is_admin' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    status = check_github_api_status()
+    return jsonify(status)
+
+@app.route('/api/github/repo-access')
+def github_repo_access():
+    """Test GitHub repository access."""
+    if 'is_admin' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    access_info = test_github_repo_access()
+    return jsonify(access_info)
+
 @app.route('/api/file', methods=['POST', 'DELETE'])
 def manage_file():
-    if 'is_admin' not in session: return jsonify({'error': 'Not authenticated'}), 401
+    if 'is_admin' not in session: 
+        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
         data = request.json
@@ -703,19 +979,72 @@ def manage_file():
         
         # Validate required fields
         if not details['user'] or not details['repo']:
-            return jsonify({'error': 'GitHub username or repository not configured'}), 400
+            return jsonify({
+                'error': 'GitHub configuration incomplete',
+                'message': 'GitHub username or repository not configured',
+                'suggestion': 'Please check your settings'
+            }), 400
         
         if not headers:
-            return jsonify({'error': 'GitHub token not configured'}), 400
-            
+            return jsonify({
+                'error': 'GitHub token missing',
+                'message': 'GitHub token not configured',
+                'suggestion': 'Please add a valid GitHub Personal Access Token in settings'
+            }), 400
+        
+        # Pre-flight checks before attempting the operation
+        print(f"INFO: Performing pre-flight checks for {request.method} operation on {path}")
+        
+        # Check GitHub API status and rate limits
+        api_status = check_github_api_status()
+        if api_status['status'] != 'ok':
+            return jsonify({
+                'error': 'GitHub API unavailable',
+                'message': api_status['message'],
+                'suggestion': 'Please try again later'
+            }), 503
+        
+        # Check rate limits
+        rate_limit = api_status.get('rate_limit', {})
+        remaining = rate_limit.get('remaining', 0)
+        percentage_used = rate_limit.get('percentage_used', 100)
+        
+        if remaining < 10:  # Less than 10 requests remaining
+            return jsonify({
+                'error': 'Rate limit nearly exceeded',
+                'message': f'Only {remaining} GitHub API requests remaining',
+                'suggestion': f'Rate limit resets at {rate_limit.get("reset_time", "unknown time")}',
+                'retry_after': rate_limit.get('reset_time', 0)
+            }), 429
+        
+        if percentage_used > 90:  # More than 90% of rate limit used
+            print(f"WARNING: GitHub API rate limit {percentage_used:.1f}% used ({remaining} remaining)")
+        
+        # Test repository access
+        repo_access = test_github_repo_access()
+        if repo_access['status'] != 'ok':
+            return jsonify({
+                'error': 'Repository access failed',
+                'message': repo_access['message'],
+                'suggestion': 'Check repository name and token permissions'
+            }), 403
+        
+        # Check write permissions for POST/DELETE operations
+        permissions = repo_access.get('permissions', {})
+        if not permissions.get('write', False):
+            return jsonify({
+                'error': 'Insufficient permissions',
+                'message': 'Your GitHub token does not have write access to this repository',
+                'suggestion': 'Update your Personal Access Token with appropriate permissions'
+            }), 403
+        
         api_url = f"https://api.github.com/repos/{details['user']}/{details['repo']}/contents/{path}"
         
-        print(f"DEBUG: API URL: {api_url}")
-        print(f"DEBUG: Method: {request.method}")
-        print(f"DEBUG: Path: {path}")
-        print(f"DEBUG: SHA: {sha}")
+        print(f"INFO: Pre-flight checks passed. Proceeding with {request.method} operation")
+        print(f"INFO: API URL: {api_url}")
+        print(f"INFO: Rate limit status: {remaining}/{rate_limit.get('limit', 'unknown')} remaining")
         
-        if request.method == 'POST': # Create or Update
+        if request.method == 'POST':  # Create or Update
             content = data['content']
             content_b64 = base64.b64encode(content.encode('utf-8')).decode('utf-8')
             payload = {
@@ -726,39 +1055,71 @@ def manage_file():
             if sha: 
                 payload['sha'] = sha
             
-            print(f"DEBUG: Payload keys: {list(payload.keys())}")
-            print(f"DEBUG: Branch: {details['branch']}")
+            print(f"INFO: Sending PUT request to GitHub API")
+            result = github_api_request_with_retry('PUT', api_url, headers, payload)
             
-            response = requests.put(api_url, headers=headers, json=payload)
-            status_code = response.status_code
+        elif request.method == 'DELETE':  # Delete
+            if not sha: 
+                return jsonify({
+                    'error': 'SHA required',
+                    'message': 'File SHA is required for deletion',
+                    'suggestion': 'Refresh the file list and try again'
+                }), 400
             
-        elif request.method == 'DELETE': # Delete
-            if not sha: return jsonify({'error': 'File SHA is required for deletion'}), 400
             payload = {
                 'message': f'docs: delete {path}', 
                 'sha': sha, 
                 'branch': details['branch']
             }
-            response = requests.delete(api_url, headers=headers, json=payload)
-            status_code = response.status_code
+            
+            print(f"INFO: Sending DELETE request to GitHub API")
+            result = github_api_request_with_retry('DELETE', api_url, headers, payload)
         
-        print(f"DEBUG: Response status: {status_code}")
-        
-        if status_code in [200, 201]:
-            return jsonify(response.json()), status_code
+        # Handle the result from the resilient API function
+        if result['success']:
+            print(f"SUCCESS: {request.method} operation completed successfully")
+            return jsonify(result['data']), result['status_code']
         else:
-            error_details = response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
-            print(f"DEBUG: Error response: {error_details}")
-            return jsonify({
-                'error': 'GitHub API request failed', 
-                'details': error_details,
-                'status_code': status_code,
-                'url': api_url
-            }), status_code
+            print(f"ERROR: {request.method} operation failed: {result['message']}")
+            
+            # Provide user-friendly error messages and suggestions
+            error_response = {
+                'error': result['error'],
+                'message': result['message']
+            }
+            
+            # Add specific suggestions based on error type
+            if result['error'] == 'rate_limit_exceeded':
+                error_response['suggestion'] = f"Wait {result.get('retry_after', 60)} seconds and try again"
+                return jsonify(error_response), 429
+            elif result['error'] == 'timeout':
+                error_response['suggestion'] = 'GitHub API is slow. Try again in a few moments.'
+                return jsonify(error_response), 504
+            elif result['error'] == 'connection_error':
+                error_response['suggestion'] = 'Check your internet connection and try again.'
+                return jsonify(error_response), 503
+            elif result['error'] == 'api_error':
+                status_code = result.get('status_code', 500)
+                if status_code == 404:
+                    error_response['suggestion'] = 'File or repository not found. Check the path and try again.'
+                elif status_code == 403:
+                    error_response['suggestion'] = 'Access denied. Check your token permissions.'
+                elif status_code == 409:
+                    error_response['suggestion'] = 'File conflict. Refresh and try again.'
+                else:
+                    error_response['suggestion'] = 'GitHub API error. Please try again.'
+                return jsonify(error_response), status_code
+            else:
+                error_response['suggestion'] = 'An unexpected error occurred. Please try again.'
+                return jsonify(error_response), 500
             
     except Exception as e:
-        print(f"DEBUG: Exception in manage_file: {str(e)}")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+        print(f"ERROR: Exception in manage_file: {str(e)}")
+        return jsonify({
+            'error': 'Server error',
+            'message': f'Unexpected server error: {str(e)}',
+            'suggestion': 'Please try again or contact support if the problem persists'
+        }), 500
 
 @app.route('/api/ai-styles')
 def get_ai_styles():
