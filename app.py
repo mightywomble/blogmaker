@@ -609,20 +609,20 @@ EDITOR_TEMPLATE = """
                     let suggestion = '';
                     
                     if (error.message.includes('rate limit')) {
-                        suggestion = '\n\nTip: Try again in a few minutes, or copy your content as backup.';
+                        suggestion = '\\n\\nTip: Try again in a few minutes, or copy your content as backup.';
                     } else if (error.message.includes('GitHub API')) {
-                        suggestion = '\n\nTip: Check your internet connection and GitHub settings.';
+                        suggestion = '\\n\\nTip: Check your internet connection and GitHub settings.';
                     } else if (error.message.includes('permissions')) {
-                        suggestion = '\n\nTip: Update your GitHub Personal Access Token with repository write permissions.';
+                        suggestion = '\\n\\nTip: Update your GitHub Personal Access Token with repository write permissions.';
                     } else if (error.message.includes('timeout')) {
-                        suggestion = '\n\nTip: GitHub might be slow. Try copying your content and refreshing the page.';
+                        suggestion = '\\n\\nTip: GitHub might be slow. Try copying your content and refreshing the page.';
                     } else if (error.message.includes('conflict')) {
-                        suggestion = '\n\nTip: The file may have been modified elsewhere. Refresh the page and try again.';
+                        suggestion = '\\n\\nTip: The file may have been modified elsewhere. Refresh the page and try again.';
                     } else {
-                        suggestion = '\n\nTip: Copy your content as backup, refresh the page, and try again.';
+                        suggestion = '\\n\\nTip: Copy your content as backup, refresh the page, and try again.';
                     }
                     
-                    alert(`❌ Save Failed\n\n${errorMessage}${suggestion}`);
+                    alert('❌ Save Failed\\n\\n' + errorMessage + suggestion);
                     
                 } finally {
                     hideProgress();
