@@ -721,7 +721,7 @@ EDITOR_TEMPLATE = """
                 if (!filename) return alert('Filename cannot be empty.');
                 if (!filename.endsWith('.md')) filename += '.md';
                 document.getElementById('new-file-modal').classList.add('hidden');
-                saveFile(filename, `# ${filename}\\n\\nStart writing here.`, null, true);
+                saveFile(filename, `# ${filename}\n\nStart writing here.`, null, true);
                 input.value = '';
             });
 
